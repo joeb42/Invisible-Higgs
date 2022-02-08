@@ -1,0 +1,2 @@
+model_checkpoint_path: "Combined_RNN_checkpoints"
+all_model_checkpoint_paths: "Combined_RNN_checkpoints"
