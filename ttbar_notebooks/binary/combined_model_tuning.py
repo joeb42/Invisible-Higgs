@@ -59,7 +59,7 @@ class HyperModel(kt.HyperModel):
         if self.output_neurons == 1:
             loss = "binary_crossentropy"
         else:
-            loss = "binary_crossentropy"
+            loss = "categorical_crossentropy"
         model.compile(
             loss=loss,
             optimizer=Nadam(learning_rate=lr, beta_1=beta_1, beta_2=beta_2),
