@@ -73,7 +73,7 @@ class HyperModel(kt.HyperModel):
         return model
 
     def fit(self, hp, model, *args, **kwargs):
-        return model.fit(*args, batch_size=hp.Choice("Batch size", [8, 16, 32, 64, 128]), **kwargs)
+        return model.fit(*args, batch_size=hp.Choice("Batch size", [16, 32, 64, 128]), **kwargs)
 
 
 def main(output_neurons=1):
@@ -117,10 +117,11 @@ def main(output_neurons=1):
     tuner = kt.BayesianOptimization(
         HyperModel(output_neurons),
         objective=kt.Objective("val_auc", "max"),
-        max_trials=100,
+        max_trials=80,
         overwrite=True,
-        directory=f"kt_RNN_MLP_{self.output_neurons}_classes",
+        directory=f"kt_RNN_MLP_{output_neurons}_classes",
         project_name="feb_24_tuning",
+        beta=3,
     )
     callbacks = [EarlyStopping(patience=10), ReduceLROnPlateau(patience=5)]
     if output_neurons == 1:
@@ -131,14 +132,15 @@ def main(output_neurons=1):
         validation_data=([X_test_obj, X_test_event], y_test, test_weights),
         callbacks=callbacks,
         sample_weight=sample_weights,
+        epochs=30
     )
     best_HP = tuner.get_best_hyperparameters()[0]
     print(best_HP.values)
-
+    best_model = HyperModel(output_neurons).build(best_HP)
+    best_model.save(f"./models/feb24_tuned_{output_neurons}_classes")
 
 if __name__ == "__main__":
-    print(len(sys.argv))
     if len(sys.argv) == 2:
-        main(sys.argv[1])
+        main(int(sys.argv[1]))
     else:
         main()
