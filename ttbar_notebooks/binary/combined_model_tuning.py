@@ -19,6 +19,8 @@ import keras_tuner as kt
 from sklearn.model_selection import train_test_split
 from sklearn.utils import class_weight
 import sys
+import argparse
+
 
 
 class HyperModel(kt.HyperModel):
@@ -36,11 +38,11 @@ class HyperModel(kt.HyperModel):
         - Drop out
         """
         obj_input = Input(shape=(14, 8))
-        gru = GRU(hp.Int("RNN units", 100, 200, 10))(obj_input)
+        gru = GRU(hp.Int("RNN units", 100, 300, 25))(obj_input)
         ln = LayerNormalization()(gru)
-        units = hp.Int("mlp neurons per layer", 50, 200, 25)
+        units = hp.Int("mlp neurons per layer", 100, 400, 50)
         dropout_rate = hp.Float("dropout rate", 0, 0.4, 0.05)
-        n_layers = hp.Int("mlp layers", 1, 5, 1)
+        n_layers = hp.Int("mlp layers", 1, 10, 1)
         combine_layer = hp.Int("combine position", 1, n_layers)
         event_input = Input(shape=(10,))
         prev = event_input
@@ -81,7 +83,7 @@ class HyperModel(kt.HyperModel):
 
 
 def main(output_neurons=1):
-    full_data = np.load("./data/full_data.npy", allow_pickle=True)
+    full_data = np.load("./data/combined_data.npy", allow_pickle=True)
     X_event, X_obj, y = full_data[0], full_data[2], full_data[-2]
     (
         X_train_event,
