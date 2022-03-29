@@ -21,6 +21,8 @@ from sklearn.utils import class_weight
 import sys
 import argparse
 
+strategy = tf.distribute.MirroredStrategy()
+
 
 
 class HyperModel(kt.HyperModel):
@@ -37,43 +39,44 @@ class HyperModel(kt.HyperModel):
         - Batch normalisation
         - Drop out
         """
-        obj_input = Input(shape=(14, 8))
-        gru = GRU(hp.Int("RNN units", 100, 300, 25))(obj_input)
-        ln = LayerNormalization()(gru)
-        units = hp.Int("mlp neurons per layer", 100, 400, 50)
-        dropout_rate = hp.Float("dropout rate", 0, 0.4, 0.05)
-        n_layers = hp.Int("mlp layers", 1, 10, 1)
-        event_input = Input(shape=(10,))
-        prev = event_input
-        for n in range(n_layers):
-            layer = Dense(units, activation="selu", kernel_initializer="lecun_normal")(
-                prev
+        with strategy.scope():
+            obj_input = Input(shape=(14, 8), name="input_1")
+            gru = GRU(hp.Int("RNN units", 100, 300, 25))(obj_input)
+            ln = LayerNormalization()(gru)
+            units = hp.Int("mlp neurons per layer", 100, 400, 50)
+            dropout_rate = hp.Float("dropout rate", 0, 0.4, 0.05)
+            n_layers = hp.Int("mlp layers", 3, 15, 1)
+            event_input = Input(shape=(10,), name="input_2")
+            prev = event_input
+            for n in range(n_layers):
+                layer = Dense(units, activation="selu", kernel_initializer="lecun_normal")(
+                    prev
+                )
+                if n == 0:
+                    layer = Concatenate()([ln, layer])
+                prev = AlphaDropout(rate=dropout_rate)(layer)
+            if self.output_neurons == 1:
+                act = "sigmoid"
+            else:
+                act = "softmax"
+            out = Dense(self.output_neurons, activation=act)(prev)
+            model = Model(inputs=[obj_input, event_input], outputs=out)
+            lr = hp.Float("learning rate", 0.00001, 0.001, 0.000005)
+            if self.output_neurons == 1:
+                loss = "binary_crossentropy"
+            else:
+                loss = "categorical_crossentropy"
+            model.compile(
+                loss=loss,
+                optimizer=Nadam(learning_rate=lr),
+                metrics=[
+                    keras.metrics.AUC(),
+                    keras.metrics.Precision(),
+                    keras.metrics.Recall(),
+                    keras.metrics.CategoricalAccuracy(),
+                ],
             )
-            if n == 0:
-                layer = Concatenate()([ln, layer])
-            prev = AlphaDropout(rate=dropout_rate)(layer)
-        if self.output_neurons == 1:
-            act = "sigmoid"
-        else:
-            act = "softmax"
-        out = Dense(self.output_neurons, activation=act)(prev)
-        model = Model(inputs=[obj_input, event_input], outputs=out)
-        lr = hp.Float("learning rate", 0.00001, 0.001, 0.000005)
-        if self.output_neurons == 1:
-            loss = "binary_crossentropy"
-        else:
-            loss = "categorical_crossentropy"
-        model.compile(
-            loss=loss,
-            optimizer=Nadam(learning_rate=lr),
-            metrics=[
-                keras.metrics.AUC(),
-                keras.metrics.Precision(),
-                keras.metrics.Recall(),
-                keras.metrics.BinaryAccuracy(),
-            ],
-        )
-        return model
+            return model
 
     def fit(self, hp, model, *args, **kwargs):
         # batch_size = hp.Choice("batch size", [32, 64, 128, 256])
@@ -81,18 +84,17 @@ class HyperModel(kt.HyperModel):
 
 
 def main(output="multi", bgs="all", seed=42, gpu_num=1, hyperparameters="all"):
-    # gpu setup
-    gpus = tf.config.list_physical_devices('GPU')
-    if gpus:
-    # Restrict TensorFlow to only use the second GPU
-        try:
-            tf.config.set_visible_devices(gpus[gpu_num], 'GPU')
-            logical_gpus = tf.config.list_logical_devices('GPU')
-            print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPU")
-        except RuntimeError as e:
-            # Visible devices must be set before GPUs have been initialized
-            print(e)
-    
+    # gpu setup
+    # gpus = tf.config.list_physical_devices('GPU')
+    # if gpus:
+    # # Restrict TensorFlow to only use the second GPU
+    #     try:
+    #         tf.config.set_visible_devices(gpus[gpu_num], 'GPU')
+    #         logical_gpus = tf.config.list_logical_devices('GPU')
+    #         print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPU")
+    #     except RuntimeError as e:
+    #         # Visible devices must be set before GPUs have been initialized
+    #         print(e)
     if bgs == "all":
         full_data = np.load("./data/combined_data.npy", allow_pickle=True)
         output_neurons = len(full_data[-1].columns)
@@ -128,6 +130,12 @@ def main(output="multi", bgs="all", seed=42, gpu_num=1, hyperparameters="all"):
         d_class_weights = dict(enumerate(class_weights))
         train_weights = np.array([d_class_weights[i] for i in np.argmax(y_train, axis=1)])
         test_weights = np.array([d_class_weights[i] for i in np.argmax(y_test, axis=1)])
+    
+    batch_size = 5096
+    train_data = tf.data.Dataset.from_tensor_slices(({"input_1": X_train_obj, "input_2": X_train_event}, y_train, train_weights))
+    val_data = tf.data.Dataset.from_tensor_slices(({"input_1":X_test_obj, "input_2": X_test_event}, y_test, test_weights))
+    train_data = train_data.batch(batch_size)
+    val_data = val_data.batch(batch_size)
     # Bayesian opt
     tuner = kt.BayesianOptimization(
         HyperModel(output_neurons),
@@ -135,24 +143,21 @@ def main(output="multi", bgs="all", seed=42, gpu_num=1, hyperparameters="all"):
         max_trials=100,
         overwrite=True,
         directory=f"kt_RNN_MLP_{output_neurons}_classes",
-        project_name="mar_9_tuning",
+        project_name="mar_13_tuning",
         beta=5,
     )
     # Reduce learning rate if val loss start to increase + stop early if it doesn't decrease after 5 epochs
-    callbacks = [EarlyStopping(patience=5), ReduceLROnPlateau(patience=1)]
+    callbacks = [EarlyStopping(patience=50, restore_best_weights=True), ReduceLROnPlateau(patience=25)]
     tuner.search(
-        [X_train_obj, X_train_event],
-        y_train,
-        validation_data=([X_test_obj, X_test_event], y_test, test_weights),
+        train_data,
+        validation_data=val_data,
         callbacks=callbacks,
-        sample_weight=train_weights,
-        epochs=50,
-        batch_size=64
+        epochs=200,
     )
     best_HP = tuner.get_best_hyperparameters()[0]
     print(best_HP.values)
     best_model = HyperModel(output_neurons).build(best_HP)
-    best_model.save(f"./models/mar9_tuned_{output_neurons}_classes")
+    best_model.save(f"./models/mar13_tuned_{output_neurons}_classes")
 
 if __name__ == "__main__":
     args = [["binary", "multi"], ["all", "ttbar"]]

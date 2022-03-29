@@ -10,9 +10,9 @@ class PreProcess:
         if datasets == "all":
             datasets = set(os.listdir(path)) - {"test"}
         data = pd.concat([pd.read_hdf(path+dataset+"/df_ml_inputs.hd5") for dataset in datasets])
-        new_cols = ["QCD", "WJets", "ZJets"]
+        new_cols = {"QCD":"QCD", "Jets":"VJets", "WminusH125": "VH125", "WplusH125":"VH125", "ZH125":"VH125"}
         for col in new_cols:
-            data['dataset'] = data.dataset.str.replace(r'(^.*' + col + r'.*$)', col)
+            data['dataset'] = data.dataset.str.replace(r'(^.*' + col + r'.*$)', new_cols[col])
         self.y = pd.get_dummies(data['dataset'])
         # Drop unimportant cols
         self.X = data.drop(['weight_nominal', 'entry', 'hashed_filename', 'MHT_phi', 'InputMet_phi', 'dataset', 'BiasedDPhi']+exclude, axis=1)
