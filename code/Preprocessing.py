@@ -5,7 +5,13 @@ from sklearn.preprocessing import StandardScaler
 import os
 
 class PreProcess:
-    def __init__(self, datasets, seed=42, train_size=0.8, exclude=[]):
+    """
+    Pre-processes data for mlp, RNN and CNN models
+    - Strips useless columns 
+    - Scales appropriately
+    - Additional preprocessing for image approach
+    """
+    def __init__(self, datasets, seed=42, train_size=0.8, exclude=['BiasedDPhi'], path="/software/ys20884/ml_postproc/"):
         path = "/software/ys20884/ml_postproc/"
         if datasets == "all":
             datasets = set(os.listdir(path)) - {"test"}
@@ -15,7 +21,7 @@ class PreProcess:
             data['dataset'] = data.dataset.str.replace(r'(^.*' + col + r'.*$)', new_cols[col])
         self.y = pd.get_dummies(data['dataset'])
         # Drop unimportant cols
-        self.X = data.drop(['weight_nominal', 'entry', 'hashed_filename', 'MHT_phi', 'InputMet_phi', 'dataset', 'BiasedDPhi']+exclude, axis=1)
+        self.X = data.drop(['weight_nominal', 'entry', 'hashed_filename', 'MHT_phi', 'InputMet_phi', 'dataset']+exclude, axis=1)
         if not isinstance(seed, int):
             raise TypeError("Seed must be integer")
         self.seed = seed
@@ -34,7 +40,7 @@ class PreProcess:
         """
         Returns scaled event level data in train test split for mlp/combined neural networks
         """
-        X_train, X_test = train_test_split(self.X.select_dtypes(exclude=object), train_size=self.train_size, random_state=self.seed, stratify=self.y)
+        X_train, X_test = train_test_split(self.X.select_dtypes(exclude=object).drop("xs_weight"), train_size=self.train_size, random_state=self.seed, stratify=self.y)
         event_scaler = StandardScaler()
         X_train = event_scaler.fit_transform(X_train)
         X_test = event_scaler.transform(X_test)
@@ -96,3 +102,10 @@ class PreProcess:
         jet_images[:, :, -pad:, :] = jet_images[:, :, pad:2*pad, :]
         X_train, X_test = train_test_split(jet_images, train_size=self.train_size, random_state=self.seed, stratify=self.y)
         return X_train, X_test
+    
+    def xs_weight(self):
+        """
+        Returns train test split for xs weights
+        """
+        return train_test_split(self.X["xs_weight"], train_size=self.train_size, random_state=self.seed, stratify=self.y)
+    
