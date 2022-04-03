@@ -118,7 +118,7 @@ class PreProcess:
         np.nan_to_num(X_test, copy=False, nan=0)
         return X_train, X_test
 
-    def image(self, eta_dim=40, phi_dim=40, pad=5):
+    def image(self, eta_dim=40, phi_dim=40):
         """
         Returns train test split for jet image approach with pt and btag discriminator at each pixel
         """
@@ -137,17 +137,13 @@ class PreProcess:
                 jet_data_arr[:, i, j] = jet_data.loc[:, k].map(
                     lambda x: x[i] if len(x) > i else 0
                 )
+        # jet_data_arr[:, :, 0] *= np.sign(jet_data_arr[:, 0, 0] * jet_data_arr[:, :, 0])
         N = len(jet_data_arr)
-        jet_images = np.zeros((N, 40, 40 + 2 * pad, 2), dtype=np.half)
+        jet_images = np.zeros((N, 40, 40, 2), dtype=np.half)
         for jet in range(14):
             if jet == 0:
-                etas = 19 * np.ones(N).astype(int)
                 phis = 19 * np.ones(N).astype(int)
             else:
-                etas = np.minimum(
-                    (jet_data_arr[:, jet, 0] - jet_data_arr[:, 0, 0] + 5) // eta_res,
-                    eta_dim,
-                ).astype(int)
                 phis = (
                     np.minimum(
                         np.mod(
@@ -155,16 +151,17 @@ class PreProcess:
                             2 * np.pi,
                         )
                         // phi_res,
-                        phi_dim,
+                        phi_dim-1,
                     ).astype(int)
-                    + 10
                 )
+            etas = np.minimum(
+                    (jet_data_arr[:, jet, 0] + 5) // eta_res,
+                    eta_dim-1,
+                ).astype(int)
             pts = jet_data_arr[:, jet, 2]
             btags = jet_data_arr[:, jet, 3]
             jet_images[range(N), etas, phis, 0] = pts
             jet_images[range(N), etas, phis, 1] = btags
-        jet_images[:, :, :pad, :] = jet_images[:, :, -2 * pad : -pad, :]
-        jet_images[:, :, -pad:, :] = jet_images[:, :, pad : 2 * pad, :]
         X_train, X_test = train_test_split(
             jet_images,
             train_size=self.train_size,

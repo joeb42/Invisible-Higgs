@@ -6,12 +6,11 @@ from sklearn.metrics import roc_auc_score
 class Analysis:
     def __init__(self, model, X_test, y_test):
         self.y_test = y_test
-        self.y_pred = model.predict(X_test)
+        self.y_pred = model.predict(X_test).reshape(len(y_test))
     
-    def plot_discriminator(self, npoints=500):
-        thresholds = np.linspace(0, 1, npoints)
-        hist, bins, patches = plt.hist(self.y_pred[self.y_test==1], bins='auto', density=True, histtype='step', label="ttH")
-        plt.hist(self.y_pred[self.y_test==0], bins=bins, density=True, histtype="step", label=r"t\bart")
+    def plot_discriminator(self):
+        hist, bins, patches = plt.hist(self.y_pred[self.y_test==1], bins=40, density=True, histtype='step', label="ttH")
+        plt.hist(self.y_pred[self.y_test==0], bins=bins, density=True, histtype="step", label=r"$t\bart$")
         plt.legend()
         plt.show()
     
@@ -29,4 +28,37 @@ class Analysis:
         plt.legend()
         plt.show()
     
+    def significance(self, weights, lum=140e3, res=0.00001, plot=True):
+        thresholds = np.arange(0, 1+res, res)
+        ams_sigma0 = np.zeros(len(thresholds))
+        ams_sigma5 = np.zeros(len(thresholds))
+        ams_sigma10 = np.zeros(len(thresholds))
+        ams_sigma20 = np.zeros(len(thresholds))
+
+        sg = np.zeros(len(thresholds))
+        bg = np.zeros(len(thresholds))
+        
+        for idx, threshold in enumerate(thresholds):
+            sg[idx] = (lum * weights * 5 * ((self.y_pred >= threshold) & (self.y_test == 1)).astype(int)).sum()
+            bg[idx] = (lum * weights * 5 * ((self.y_pred >= threshold) & (self.y_test == 0)).astype(int)).sum()
+            # Min 10 signal events 
+            if sg[idx] > 10: 
+                ams_sigma0[idx] = asimov(sg[idx], bg[idx], 0)
+                ams_sigma5[idx] = asimov(sg[idx], bg[idx], 0.05)
+                ams_sigma10[idx] = asimov(sg[idx], bg[idx], 0.1)
+        if plot:
+            plt.plot(thresholds, ams_sigma0, label=r"$\sigma=0\%$")
+            plt.plot(thresholds, ams_sigma5, label=r"$\sigma=5\%$")
+            plt.plot(thresholds, ams_sigma10, label=r"$\sigma=10\%$")
+            plt.xlabel("Threshold")
+            plt.ylabel("Significance")
+            plt.legend()
+            plt.show()
+        return ams_sigma0, ams_sigma5, ams_sigma10
+        
     
+def asimov(s, b, sigma):
+    if sigma == 0:
+        return np.sqrt(2 * ((s+b) * np.log(1+s/b)-s))
+    s_b = sigma * b
+    return np.sqrt(2 * ( (s+b) * np.log( (s+b) * (b+s_b**2)/ (b**2 + (s+b) * s_b**2)) - (b/s_b)**2 * np.log(1 + (s_b**2 * s)/ (b * (b + s_b**2)))))
