@@ -40,6 +40,7 @@ class PreProcess:
             )
         self.y = pd.get_dummies(data["dataset"])
         # Drop unimportant cols
+        self.MHT_phis = data["MHT_phi"]
         self.X = data.drop(
             [
                 "weight_nominal",
@@ -91,17 +92,21 @@ class PreProcess:
         inp_data = self.X.select_dtypes(object)
         max_jets = 14
         num_samples = len(inp_data)
-        num_cols = len(inp_data.columns)
+        num_cols = len(inp_data.columns) + 1
         data = np.zeros(
             (num_samples, max_jets, num_cols)
         )  # Shape for RNN samples x sequence length x dimensionality
+        dphi = np.vectorize(lambda x,y: np.nan if y == np.nan else 2*np.pi - abs(x-y) if abs(x-y) > np.pi else abs(x-y))
         for i in range(max_jets):
             for j in range(num_cols):
                 # Get delta phi wrt to leading jet
-                if j == 6 and i > 0:
+                if j == 6:
                     data[:, i, j] = inp_data.iloc[:, j].map(
-                        lambda x: abs(x[i] - x[0]) if len(x) > i else np.nan
+                        lambda x: np.nan if len(x) <= i else 2*np.pi - abs(x[i] - x[0]) if abs(x[i] - x[0]) > np.pi else abs(x[i] - x[0])
                     )
+                elif j == num_cols - 1:
+                    phis = inp_data.loc[:, "cleanedJet_phi"].map(lambda x: np.nan if len(x) <= i else x[i])
+                    data[:, i, j] = dphi(self.MHT_phis, phis)
                 else:
                     data[:, i, j] = inp_data.iloc[:, j].map(
                         lambda x: x[i] if len(x) > i else np.nan
@@ -117,6 +122,7 @@ class PreProcess:
         np.nan_to_num(X_train, copy=False, nan=0)
         np.nan_to_num(X_test, copy=False, nan=0)
         return X_train, X_test
+        
 
     def image(self, eta_dim=40, phi_dim=40):
         """
