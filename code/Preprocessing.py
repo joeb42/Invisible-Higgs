@@ -41,6 +41,7 @@ class PreProcess:
         self.y = pd.get_dummies(data["dataset"])
         # Drop unimportant cols
         self.MHT_phis = data["MHT_phi"]
+        self.MHT_pts = data["MHT_pt"]
         self.X = data.drop(
             [
                 "weight_nominal",
@@ -84,33 +85,49 @@ class PreProcess:
         X_test = event_scaler.transform(X_test)
         return X_train, X_test
 
-    def sequential(self):
+    def sequential(self, exclude=[]):
         """
         Returns scaled object level data in train test split for RNN networks
         """
 
-        inp_data = self.X.select_dtypes(object)
+        inp_data = self.X.select_dtypes(object).drop(exclude, axis=1)
         max_jets = 14
         num_samples = len(inp_data)
-        num_cols = len(inp_data.columns) + 1
+        # num_cols = len(inp_data.columns) + 1
+        cols = inp_data.columns
+        num_cols = len(cols) + 1
         data = np.zeros(
             (num_samples, max_jets, num_cols)
         )  # Shape for RNN samples x sequence length x dimensionality
+        # delta phi func for getting delta phi between jet and leading jet/ jet and MHT. 
         dphi = np.vectorize(lambda x,y: np.nan if y == np.nan else 2*np.pi - abs(x-y) if abs(x-y) > np.pi else abs(x-y))
         for i in range(max_jets):
-            for j in range(num_cols):
+            for j, col in enumerate(cols):
                 # Get delta phi wrt to leading jet
-                if j == 6:
-                    data[:, i, j] = inp_data.iloc[:, j].map(
+                if col == "cleanedJet_phi":
+                    data[:, i, j] = inp_data.loc[:, col].map(
                         lambda x: np.nan if len(x) <= i else 2*np.pi - abs(x[i] - x[0]) if abs(x[i] - x[0]) > np.pi else abs(x[i] - x[0])
                     )
-                elif j == num_cols - 1:
-                    phis = inp_data.loc[:, "cleanedJet_phi"].map(lambda x: np.nan if len(x) <= i else x[i])
-                    data[:, i, j] = dphi(self.MHT_phis, phis)
                 else:
-                    data[:, i, j] = inp_data.iloc[:, j].map(
+                    data[:, i, j] = inp_data.loc[:, col].map(
                         lambda x: x[i] if len(x) > i else np.nan
                     )  # scaler ignores nan
+            # Delta phi wrt MHT_pt
+            phis = inp_data.loc[:, "cleanedJet_phi"].map(lambda x: np.nan if len(x) <= i else x[i])
+            data[:, i, -1] = dphi(self.MHT_phis, phis)
+            
+
+                # if j == 6:
+                #     data[:, i, j] = inp_data.iloc[:, j].map(
+                #         lambda x: np.nan if len(x) <= i else 2*np.pi - abs(x[i] - x[0]) if abs(x[i] - x[0]) > np.pi else abs(x[i] - x[0])
+                #     )
+                # elif j == num_cols - 1:
+                #     phis = inp_data.loc[:, "cleanedJet_phi"].map(lambda x: np.nan if len(x) <= i else x[i])
+                #     data[:, i, j] = dphi(self.MHT_phis, phis)
+                # else:
+                #     data[:, i, j] = inp_data.iloc[:, j].map(
+                #         lambda x: x[i] if len(x) > i else np.nan
+                #     )  # scaler ignores nan
         X_train, X_test = train_test_split(
             data, train_size=self.train_size, random_state=self.seed, stratify=self.y
         )
@@ -128,8 +145,9 @@ class PreProcess:
         """
         Returns train test split for jet image approach with pt and btag discriminator at each pixel
         """
-        eta_res = eta_dim // 10
-        phi_res = phi_dim // (2 * np.pi)
+        eta_res = 10 / eta_dim
+        phi_res = (2 * np.pi) / phi_dim
+        centre = int((eta_dim -1)/2), int((phi_dim-1)/2)
         cols = [
             "cleanedJet_eta",
             "cleanedJet_phi",
@@ -145,21 +163,21 @@ class PreProcess:
                 )
         # jet_data_arr[:, :, 0] *= np.sign(jet_data_arr[:, 0, 0] * jet_data_arr[:, :, 0])
         N = len(jet_data_arr)
-        jet_images = np.zeros((N, 40, 40, 2), dtype=np.half)
+        jet_images = np.zeros((N, eta_dim, phi_dim, 3), dtype=np.half)
         for jet in range(14):
-            if jet == 0:
-                phis = 19 * np.ones(N).astype(int)
-            else:
-                phis = (
-                    np.minimum(
-                        np.mod(
-                            jet_data_arr[:, jet, 1] - jet_data_arr[:, 0, 1] + np.pi,
-                            2 * np.pi,
-                        )
-                        // phi_res,
-                        phi_dim-1,
-                    ).astype(int)
-                )
+            # if jet == 0:
+            #     phis = 19 * np.ones(N).astype(int)
+            # else:
+            phis = (
+                np.minimum(
+                    np.mod(
+                        jet_data_arr[:, jet, 1] - jet_data_arr[:, 0, 1] + np.pi,
+                        2 * np.pi,
+                    )
+                    // phi_res,
+                    phi_dim-1,
+                ).astype(int)
+            )
             etas = np.minimum(
                     (jet_data_arr[:, jet, 0] + 5) // eta_res,
                     eta_dim-1,
