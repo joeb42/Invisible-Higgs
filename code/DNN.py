@@ -18,17 +18,6 @@ from tensorflow.keras.layers import (
 )
 from tensorflow.keras.optimizers import Nadam
 from tensorflow.keras import Model
-from tensorflow.keras.metrics import (
-    AUC,
-    BinaryAccuracy,
-    Precision,
-    Recall,
-    FalsePositives,
-    TruePositives,
-    CategoricalAccuracy,
-)
-from tensorflow.keras.regularizers import l1, l2, l1_l2
-from functools import partial
 from abc import ABCMeta, abstractmethod
 
 
@@ -38,10 +27,15 @@ class NN(metaclass=ABCMeta):
     - Contains @property model attribute that checks model has been built before returning
     - Abstract method build_model implemented by subclasses, must take at least input and output shapes as kwargs
     - compile_model method takes learning rate and other keras model compilation kwargs
+    - fit, predict and summary methods are included so that object can be used a la keras model 
     """
 
     def __init__(self):
         self._model = None
+    
+    @abstractmethod
+    def build_model(self, input_shape=None, n_outputs=None, **kwargs):
+        pass
 
     @property
     def model(self):
@@ -49,17 +43,23 @@ class NN(metaclass=ABCMeta):
             print("Model not built yet!")
         else:
             return self._model
-
+    
+    @model.setter
+    def model(self, model):
+        self._model = model
+    
     def compile_model(self, learning_rate=0.001, **kwargs):
-        if self._model is None:
-            print("model not built yet")
-        else:
-            opt = Nadam(learning_rate=learning_rate)
-            self._model.compile(optimizer=opt, **kwargs)
-
-    @abstractmethod
-    def build_model(self, input_shape=None, n_outputs=None, **kwargs):
-        pass
+        opt = Nadam(learning_rate=learning_rate)
+        self.model.compile(optimizer=opt, **kwargs)
+    
+    def fit(self, *args, **kwargs):
+        return self.model.fit(*args, **kwargs)
+    
+    def predict(self, *args, **kwargs):
+        return self.model.predict(*args, **kwargs)
+    
+    def summary(self, *args, **kwargs):
+        return self.model.summary(*args, **kwargs)
 
 
 class MLP(NN):
@@ -68,9 +68,9 @@ class MLP(NN):
     """
 
     def build_model(
-        self, n_inputs=10, n_outputs=1, n_layers=3, n_neurons=300, dropout=0.2
+        self, input_shape=[10], n_outputs=1, n_layers=3, n_neurons=300, dropout=0.2
     ):
-        inp = Input(shape=n_inputs)
+        inp = Input(shape=input_shape)
         prev = inp
         for _ in range(n_neurons):
             prev = Dense(
@@ -105,17 +105,16 @@ class RNN(NN):
     ):
         inp = Input(shape=input_shape)
         prev = inp
-        if rnn_layers == 1:
-            prev = GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)(prev)
-        else:
-            for _ in range(rnn_layers - 1):
-                prev = GRU(
-                    rnn_neurons,
-                    recurrent_dropout=recurrent_dropout,
-                    return_sequences=True,
-                )(prev)
-        prev = GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)(prev)
-        for _ in range(dense_layers):
+        # GRU layers
+        for layer in range(rnn_layers):
+            gru = GRU(
+                rnn_neurons,
+                recurrent_dropout=recurrent_dropout,
+                return_sequences=(layer!=rnn_layers-1),
+            )(prev)
+            prev = LayerNormalization()(gru)
+        # Dense Layers
+        for layer in range(dense_layers-1):
             if dropout > 0:
                 prev = AlphaDropout(rate=dropout)(prev)
             prev = Dense(
