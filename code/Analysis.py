@@ -28,7 +28,7 @@ class Analysis:
         plt.legend()
         plt.show()
     
-    def significance(self, weights, lum=140e3, res=0.00001, plot=True):
+    def significance(self, weights, lum=140e3, res=0.0001, plot=True, br=0):
         thresholds = np.arange(0, 1+res, res)
         ams_sigma0 = np.zeros(len(thresholds))
         ams_sigma5 = np.zeros(len(thresholds))
@@ -43,22 +43,28 @@ class Analysis:
             bg[idx] = (lum * weights * 5 * ((self.y_pred >= threshold) & (self.y_test == 0)).astype(int)).sum()
             # Min 10 signal events 
             if sg[idx] > 10: 
-                ams_sigma0[idx] = asimov(sg[idx], bg[idx], 0)
-                ams_sigma5[idx] = asimov(sg[idx], bg[idx], 0.05)
-                ams_sigma10[idx] = asimov(sg[idx], bg[idx], 0.1)
+                ams_sigma0[idx] = asimov(sg[idx], bg[idx], 0, br)
+                ams_sigma5[idx] = asimov(sg[idx], bg[idx], 0.05, br)
+                ams_sigma10[idx] = asimov(sg[idx], bg[idx], 0.1, br)
+                ams_sigma20[idx] = asimov(sg[idx], bg[idx], 0.2, br)
         if plot:
             plt.plot(thresholds, ams_sigma0, label=r"$\sigma=0\%$")
             plt.plot(thresholds, ams_sigma5, label=r"$\sigma=5\%$")
             plt.plot(thresholds, ams_sigma10, label=r"$\sigma=10\%$")
+            plt.plot(thresholds, ams_sigma20, label=r"$\sigma=20\%$")
             plt.xlabel("Threshold")
             plt.ylabel("Significance")
             plt.legend()
             plt.show()
-        return ams_sigma0, ams_sigma5, ams_sigma10
+        return ams_sigma0, ams_sigma5, ams_sigma10, ams_sigma20
+    
+    def plot_cm(self, threshold):
+        ...
+    
         
     
-def asimov(s, b, sigma):
+def asimov(s, b, sigma, br=0):
     if sigma == 0:
-        return np.sqrt(2 * ((s+b) * np.log(1+s/b)-s))
+        return np.sqrt(2 * ((s+b+br) * np.log(1+s/(b+br))-s))
     s_b = sigma * b
     return np.sqrt(2 * ( (s+b) * np.log( (s+b) * (b+s_b**2)/ (b**2 + (s+b) * s_b**2)) - (b/s_b)**2 * np.log(1 + (s_b**2 * s)/ (b * (b + s_b**2)))))
