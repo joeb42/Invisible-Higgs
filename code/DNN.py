@@ -1,6 +1,5 @@
 import tensorflow as tf
 from tensorflow import keras
-from Preprocessing import PreProcess
 from tensorflow.keras.layers import (
     Input,
     Dense,
@@ -9,7 +8,6 @@ from tensorflow.keras.layers import (
     Concatenate,
     LayerNormalization,
     GRU,
-    Conv1D,
     Flatten,
     BatchNormalization,
     Conv2D,
@@ -48,17 +46,30 @@ class NN(metaclass=ABCMeta):
     def model(self, model):
         self._model = model
     
-    def compile_model(self, learning_rate=0.001, **kwargs):
+    def compile(self, learning_rate=0.001, **kwargs):
+        """
+        Compiles model and also allows setting of learning rate for Nadam optimizer
+        Note only takes kwargs
+        """
         opt = Nadam(learning_rate=learning_rate)
         self.model.compile(optimizer=opt, **kwargs)
     
     def fit(self, *args, **kwargs):
+        """
+        Calls keras fit method
+        """
         return self.model.fit(*args, **kwargs)
     
     def predict(self, *args, **kwargs):
+        """
+        Calls keras predict method
+        """
         return self.model.predict(*args, **kwargs)
     
     def summary(self, *args, **kwargs):
+        """
+        Calls keras summary method
+        """
         return self.model.summary(*args, **kwargs)
 
 
@@ -72,17 +83,17 @@ class MLP(NN):
     ):
         inp = Input(shape=input_shape)
         prev = inp
-        for _ in range(n_neurons):
+        for layer in range(n_layers):
             prev = Dense(
                 n_neurons, activation="selu", kernel_initializer="lecun_normal"
             )(prev)
-            if dropout > 0:
+            if dropout > 0 and layer < n_layers -1:
                 prev = AlphaDropout(rate=dropout)(prev)
         if n_outputs == 1:
             out = Dense(n_outputs, activation="sigmoid")(prev)
         else:
             out = Dense(n_outputs, activation="softmax")
-        self._model = Model(inputs=inp, outputs=out)
+        self.model = Model(inputs=inp, outputs=out)
 
 
 class RNN(NN):
@@ -124,7 +135,7 @@ class RNN(NN):
             out = Dense(n_outputs, activation="sigmoid")(prev)
         else:
             out = Dense(n_outputs, activation="softmax")
-        self._model = Model(inputs=inp, outputs=out)
+        self.model = Model(inputs=inp, outputs=out)
 
 
 class RNNCombined(NN):
@@ -174,7 +185,7 @@ class RNNCombined(NN):
             out = Dense(n_outputs, activation="sigmoid")(prev)
         else:
             out = Dense(n_outputs, activation="softmax")
-        self._model = Model(inputs=[obj_inp, event_inp], outputs=out)
+        self.model = Model(inputs=[obj_inp, event_inp], outputs=out)
 
 
 class CNN(NN):
@@ -215,4 +226,4 @@ class CNN(NN):
             out = Dense(n_outputs, activation="sigmoid")(prev)
         else:
             out = Dense(n_outputs, activation="softmax")
-        self._model = Model(inputs=inp, outputs=out)
+        self.model = Model(inputs=inp, outputs=out)
