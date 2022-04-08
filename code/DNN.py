@@ -24,7 +24,7 @@ class NN(metaclass=ABCMeta):
     Base class for building different neural network architectures
     - Contains @property model attribute that checks model has been built before returning
     - Abstract method build_model implemented by subclasses, must take at least input and output shapes as kwargs
-    - compile_model method takes learning rate and other keras model compilation kwargs
+    - compile method takes learning rate and other keras model compilation kwargs
     - fit, predict and summary methods are included so that object can be used a la keras model 
     """
 
@@ -79,7 +79,7 @@ class MLP(NN):
     """
 
     def build_model(
-        self, input_shape=[10], n_outputs=1, n_layers=3, n_neurons=300, dropout=0.2
+        self, input_shape=(10,), n_outputs=1, n_layers=3, n_neurons=300, dropout=0.2
     ):
         inp = Input(shape=input_shape)
         prev = inp
@@ -105,7 +105,7 @@ class RNN(NN):
 
     def build_model(
         self,
-        input_shape=[],
+        input_shape=(),
         n_outputs=1,
         rnn_layers=3,
         rnn_neurons=200,
@@ -148,7 +148,7 @@ class RNNCombined(NN):
 
     def build_model(
         self,
-        input_shape=[],
+        input_shape=(),
         n_outputs=1,
         rnn_layers=3,
         rnn_neurons=200,
