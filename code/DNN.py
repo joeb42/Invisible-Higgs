@@ -44,7 +44,10 @@ class NN(metaclass=ABCMeta):
     
     @model.setter
     def model(self, model):
+        if not isinstance(model, Model):
+            raise TypeError("Model must be a keras.models.Model object!")
         self._model = model
+        
     
     def compile(self, learning_rate=0.001, **kwargs):
         """
