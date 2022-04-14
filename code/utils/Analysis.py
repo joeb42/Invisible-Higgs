@@ -1,9 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm
+from matplotlib.colors import ListedColormap
 from sklearn.metrics import roc_auc_score
 from numpy import log, power, sqrt
 import shap
-
+from math import log10, floor
 
 
 class Evaluate:
@@ -46,11 +48,11 @@ class Evaluate:
         plt.show()
         return fig, ax
 
-    def plot_ROC(self, npoints=500, log=False, loc="best"):
+    def ROC(self, res=0.0001, log=False, loc="best", plot=True):
         """
         Plot ROC curve
         """
-        thresholds = np.linspace(0, 1, npoints)
+        thresholds = np.arange(0, 1 + res, res)
         TP = np.array(
             [
                 ((self.y_pred >= threshold) & (self.y_test == 1)).sum()
@@ -66,23 +68,24 @@ class Evaluate:
         tpr = TP / np.sum(self.y_test)
         fpr = FP / (len(self.y_test) - np.sum(self.y_test))
         auc = roc_auc_score(self.y_test, self.y_pred)
-        fig, ax = plt.subplots()
-        ax.plot(fpr, tpr, label=f"AUC={auc:.4f}")
-        ax.plot(
-            np.arange(0, 1.0001, 0.0001),
-            np.arange(0, 1.0001, 0.0001),
-            linestyle="dashed",
-            linewidth=0.5,
-            color="k",
-            label="luck",
-        )
-        ax.set_xlabel("False Positive Rate", fontsize=12)
-        ax.set_ylabel("True Positive Rate", fontsize=12)
-        if log:
-            ax.set_xscale("log")
-        ax.legend(loc=loc)
-        plt.show()
-        return fig, ax
+        if plot:
+            fig, ax = plt.subplots()
+            ax.plot(fpr, tpr, label=f"AUC={auc:.4f}")
+            ax.plot(
+                np.arange(0, 1.0001, 0.0001),
+                np.arange(0, 1.0001, 0.0001),
+                linestyle="dashed",
+                linewidth=0.5,
+                color="k",
+                label="luck",
+            )
+            ax.set_xlabel("False Positive Rate", fontsize=12)
+            ax.set_ylabel("True Positive Rate", fontsize=12)
+            if log:
+                ax.set_xscale("log")
+            ax.legend(loc=loc)
+            plt.show()
+        return auc
 
     def significance(self, weights, lum=140e3, res=0.0001, plot=True, path=None):
         """
@@ -97,17 +100,13 @@ class Evaluate:
                 lum
                 * weights
                 * 5
-                * (
-                    (self.y_pred >= threshold) & (self.y_test == 1)
-                ).astype(int)
+                * ((self.y_pred >= threshold) & (self.y_test == 1)).astype(int)
             ).sum()
             bg[idx] = (
                 lum
                 * weights
                 * 5
-                * (
-                    (self.y_pred >= threshold) & (self.y_test == 0)
-                ).astype(int)
+                * ((self.y_pred >= threshold) & (self.y_test == 0)).astype(int)
             ).sum()
         # Compute Asimov estimates and propagate statistical uncertainty
         Z_0, Z_5, Z_10, Z_20 = (
@@ -157,7 +156,7 @@ class Evaluate:
             Zs = (Z_0, Z_5, Z_10)
             Zerrs = (Z_err_0, Z_err_5, Z_err_10)
             for sig, Z_a, Zerr in zip(sigs, Zs, Zerrs):
-                idx = np.argmax(Z_a[Z_a < np.inf]-Zerr[Zerr < np.inf])
+                idx = np.argmax(Z_a[Z_a < np.inf] - Zerr[Zerr < np.inf])
                 self.plot_cm(idx, thresholds[idx], sg, bg, sig=sig, path=path)
         return (Z_0, Z_5, Z_10, Z_20), (Z_err_0, Z_err_5, Z_err_10, Z_err_20)
 
@@ -169,37 +168,86 @@ class Evaluate:
         FP = ((self.y_pred >= threshold) & (self.y_test == 0)).sum()
         tpr = TP / np.sum(self.y_test)
         fpr = FP / (len(self.y_test) - np.sum(self.y_test))
-        conf_mat = [[1-fpr, fpr], [1-tpr, tpr]]
-        events = {(0,0): round(np.sum(bg)-bg[idx]), (0,1): round(bg[idx]), (1, 0): round(np.sum(sg)-sg[idx]), (1,1): round(sg[idx])}
-        mat = plt.matshow(conf_mat, cmap='blues', vmax=2)
+        conf_mat = [[1 - fpr, fpr], [1 - tpr, tpr]]
+        events = {
+            (0, 0): round(bg[0] - bg[idx]),
+            (0, 1): round(bg[idx]),
+            (1, 0): round(sg[0] - sg[idx]),
+            (1, 1): round(sg[idx]),
+        }
+        modified = cm.get_cmap("Blues", 256)
+        newcmp = ListedColormap(modified(np.linspace(0.1, 0.75, 256)))
+        mat = plt.matshow(conf_mat, cmap=newcmp)
         for (x, y), value in np.ndenumerate(conf_mat):
-            plt.text(y, x, f"{value:.4f}% \n{events[(x,y)]:.2e}", va="center", ha="center", color="k", weight="bold")
-        plt.xlabel('Predicted Label')
-        plt.ylabel('True Label')
-        plt.xticks([0,1], labels=['Background', 'Signal'])
-        plt.yticks([0,1], labels=['Background', 'Signal'])
-        cbar = plt.colorbar(mat)
-        cbar.ax.set_ylabel(f"% events", rotation=270, labelpad=20)
-        plt.suptitle(fr"$\sigma_b={100*sig}$%")
+            plt.text(
+                y,
+                x,
+                f"{100*value:.2f}% \n{round(events[(x,y)], 3-int(floor(log10(abs(events[(x,y)]))))-1)}",
+                va="center",
+                ha="center",
+                color="k",
+            )
+        plt.xlabel("Predicted Label")
+        plt.ylabel("True Label")
+        plt.xticks([0, 1], labels=["Background", "Signal"])
+        plt.yticks([0, 1], labels=["Background", "Signal"])
+        # plt.clim(0,1)
+        # cbar = plt.colorbar(mat)
+        # cbar.ax.set_ylabel(f"% events", rotation=270, labelpad=20)
+        plt.suptitle(rf"$\sigma_b={100*sig}$%")
         if path is not None:
             if path[-1] != "/":
-                path += "/" 
-            plt.savefig(path+"cm_"+sig, dpi=200)
+                path += "/"
+            plt.savefig(path + "cm_" + sig, dpi=200)
         plt.show()
-        
-    def shap(self, type, X_train, feature_names, n=25000):
-        if type == "mlp":
+
+    def feature_importance(self, type, X_train, feature_names, n=25000, path=None):
+        """
+        Plot shapley values (impact on model output)
+        """
+        if type.lower() == "mlp":
             explainer = shap.GradientExplainer(self.model, X_train)
             shap_values = explainer.shap_values(shap.sample(self.X_test, n))
-            shap.summary_plot(shap_values[0], features=shap.sample(self.X_test, n), feature_names=feature_names, plot_size=(10,7), show=False)
+            shap.summary_plot(
+                shap_values[0],
+                features=shap.sample(self.X_test, n),
+                feature_names=feature_names,
+                plot_size=(10, 7),
+                show=False,
+            )
             plt.gcf().axes[-1].set_aspect(100)
             plt.gcf().axes[-1].set_box_aspect(100)
-            plt.show()
-    
+        if type.lower() == "rnn":
+            obj_names = [
+                "Jet_area",
+                "Jet_btagDeepB",
+                "Jet_chHEF",
+                "Jet_eta",
+                "Jet_mass",
+                "Jet_neHEF",
+                "Jet_leading_dphi",
+                "Jet_pt",
+                "Jet_MHT_dphi",
+            ]
+            explainer = shap.GradientExplainer(self.model, self.X_train)
+            shap_values = explainer.shap_values(shap.sample(self.X_test, n))
+            shap.summary_plot(
+                shap_values[0].sum(axis=1),
+                features=np.sum(shap.sample(self.X_test, n), axis=1),
+                feature_names=obj_names,
+                plot_size=(10, 7),
+                show=False,
+            )
+            plt.gcf().axes[-1].set_aspect(100)
+            plt.gcf().axes[-1].set_box_aspect(100)
+        if path is not None:
+            if path != "/":
+                path += "/"
+            plt.savefig(path+"shap_plot.png", dpi=200)
+        plt.show()
+
     def noise_study(self):
         ...
-
-
 
 
 def Z(s, b, sig=0):
