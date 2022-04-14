@@ -171,16 +171,16 @@ class Evaluate:
         fpr = FP / (len(self.y_test) - np.sum(self.y_test))
         conf_mat = [[1-fpr, fpr], [1-tpr, tpr]]
         events = {(0,0): round(np.sum(bg)-bg[idx]), (0,1): round(bg[idx]), (1, 0): round(np.sum(sg)-sg[idx]), (1,1): round(sg[idx])}
-        mat = plt.matshow(conf_mat, cmap='copper')
+        mat = plt.matshow(conf_mat, cmap='blues', vmax=2)
         for (x, y), value in np.ndenumerate(conf_mat):
-            plt.text(y, x, f"{value:.4f}% \n{events[(x,y)]:.2e}", va="center", ha="center", color="r")
-        plt.xlabel('Predicted label')
-        plt.ylabel('Actual Label')
+            plt.text(y, x, f"{value:.4f}% \n{events[(x,y)]:.2e}", va="center", ha="center", color="k", weight="bold")
+        plt.xlabel('Predicted Label')
+        plt.ylabel('True Label')
         plt.xticks([0,1], labels=['Background', 'Signal'])
         plt.yticks([0,1], labels=['Background', 'Signal'])
         cbar = plt.colorbar(mat)
-        cbar.ax.set_ylabel(f"% events", rotation=270)
-        plt.suptitle(f"{sig*100}% systematic uncertainty")
+        cbar.ax.set_ylabel(f"% events", rotation=270, labelpad=20)
+        plt.suptitle(fr"$\sigma_b={100*sig}$%")
         if path is not None:
             if path[-1] != "/":
                 path += "/" 
