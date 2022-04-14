@@ -1,3 +1,8 @@
+"""
+Classes for all the different Keras neural network architectures used.
+All objects inherit from NN base 
+"""
+
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras.layers import (
@@ -25,12 +30,12 @@ class NN(metaclass=ABCMeta):
     - Contains @property model attribute that checks model has been built before returning
     - Abstract method build_model implemented by subclasses, must take at least input and output shapes as kwargs
     - compile method takes learning rate and other keras model compilation kwargs
-    - fit, predict and summary methods are included so that object can be used a la keras model 
+    - fit, predict and summary methods are included so that object can be used a la keras model
     """
 
     def __init__(self):
         self._model = None
-    
+
     @abstractmethod
     def build_model(self, input_shape=None, n_outputs=None, **kwargs):
         pass
@@ -41,39 +46,45 @@ class NN(metaclass=ABCMeta):
             print("Model not built yet!")
         else:
             return self._model
-    
+
     @model.setter
     def model(self, model):
         if not isinstance(model, Model):
             raise TypeError("Model must be a keras.models.Model object!")
         self._model = model
-        
-    
+
     def compile(self, learning_rate=0.001, **kwargs):
         """
         Compiles model and also allows setting of learning rate for Nadam optimizer
         Note only takes kwargs
         """
+        # Nadam is Adam with Nesterov momentum
         opt = Nadam(learning_rate=learning_rate)
         self.model.compile(optimizer=opt, **kwargs)
-    
+
     def fit(self, *args, **kwargs):
         """
         Calls keras fit method
         """
         return self.model.fit(*args, **kwargs)
-    
+
     def predict(self, *args, **kwargs):
         """
         Calls keras predict method
         """
         return self.model.predict(*args, **kwargs)
-    
+
     def summary(self, *args, **kwargs):
         """
         Calls keras summary method
         """
         return self.model.summary(*args, **kwargs)
+
+    def evaluate(self, *args, **kwargs):
+        """
+        Calls keras evaluate method
+        """
+        return self.model.evaluate(*args, **kwargs)
 
 
 class MLP(NN):
@@ -90,7 +101,7 @@ class MLP(NN):
             prev = Dense(
                 n_neurons, activation="selu", kernel_initializer="lecun_normal"
             )(prev)
-            if dropout > 0 and layer < n_layers -1:
+            if dropout > 0 and layer < n_layers - 1:
                 prev = AlphaDropout(rate=dropout)(prev)
         if n_outputs == 1:
             out = Dense(n_outputs, activation="sigmoid")(prev)
@@ -124,12 +135,12 @@ class RNN(NN):
             gru = GRU(
                 rnn_neurons,
                 recurrent_dropout=recurrent_dropout,
-                return_sequences=(layer!=rnn_layers-1),
+                return_sequences=(layer != rnn_layers - 1),
             )(prev)
             prev = LayerNormalization()(gru)
         # Dense Layers
-        for layer in range(dense_layers-1):
-            if dropout > 0:
+        for layer in range(dense_layers):
+            if dropout > 0 and layer > 0:
                 prev = AlphaDropout(rate=dropout)(prev)
             prev = Dense(
                 dense_neurons, activation="selu", kernel_initializer="lecun_normal"
@@ -178,8 +189,8 @@ class RNNCombined(NN):
         )(event_inp)
         conc = Concatenate()([prev, dense])
         prev = conc
-        for _ in range(dense_layers - 1):
-            if dropout > 0:
+        for layer in range(dense_layers - 1):
+            if dropout > 0 and layer > 0:
                 prev = AlphaDropout(rate=dropout)(prev)
             prev = Dense(
                 dense_neurons, activation="selu", kernel_initializer="lecun_normal"
