@@ -2,9 +2,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.metrics import roc_auc_score
 from numpy import log, power, sqrt
+import shap
 
 
-class Analysis:
+
+class Evaluate:
     """
     Contains functions to evaluate performance of keras binary classifier
     """
@@ -16,26 +18,38 @@ class Analysis:
         """
         self.y_test = y_test
         self.y_pred = model.predict(X_test).reshape(len(y_test))
+        self.X_test = X_test
+        self.model = model
 
-    def plot_discriminator(self):
-        hist, bins, patches = plt.hist(
+    def plot_discriminator(self, loc="best"):
+        """
+        Plot histogram of discriminator outputs for signal and backround
+        """
+        fig, ax = plt.subplots()
+        hist, bins, patches = ax.hist(
             self.y_pred[self.y_test == 1],
-            bins=40,
+            bins="auto",
             density=True,
             histtype="step",
             label="ttH",
         )
-        plt.hist(
+        ax.hist(
             self.y_pred[self.y_test == 0],
             bins=bins,
             density=True,
             histtype="step",
             label=r"$t\bart$",
         )
-        plt.legend()
+        ax.legend(loc=loc)
+        ax.set_xlabel("Discriminator Output", fontsize=12)
+        ax.set_ylabel("Frequency Density", fontsize=12)
         plt.show()
+        return fig, ax
 
-    def plot_ROC(self, npoints=500):
+    def plot_ROC(self, npoints=500, log=False, loc="best"):
+        """
+        Plot ROC curve
+        """
         thresholds = np.linspace(0, 1, npoints)
         TP = np.array(
             [
@@ -52,8 +66,9 @@ class Analysis:
         tpr = TP / np.sum(self.y_test)
         fpr = FP / (len(self.y_test) - np.sum(self.y_test))
         auc = roc_auc_score(self.y_test, self.y_pred)
-        plt.plot(fpr, tpr, label=f"AUC={auc:.4f}")
-        plt.plot(
+        fig, ax = plt.subplots()
+        ax.plot(fpr, tpr, label=f"AUC={auc:.4f}")
+        ax.plot(
             np.arange(0, 1.0001, 0.0001),
             np.arange(0, 1.0001, 0.0001),
             linestyle="dashed",
@@ -61,12 +76,18 @@ class Analysis:
             color="k",
             label="luck",
         )
-        plt.xlabel("False Positive Rate")
-        plt.ylabel("True Positive Rate")
-        plt.legend()
+        ax.set_xlabel("False Positive Rate", fontsize=12)
+        ax.set_ylabel("True Positive Rate", fontsize=12)
+        if log:
+            ax.set_xscale("log")
+        ax.legend(loc=loc)
         plt.show()
+        return fig, ax
 
     def significance(self, weights, lum=140e3, res=0.0001, plot=True, path=None):
+        """
+        Make significance plot at 0, 5 and 10% systematic bg uncertainties @ L = 140/fb
+        """
         thresholds = np.arange(0, 1 + res, res)
         sg = np.zeros(len(thresholds))
         bg = np.zeros(len(thresholds))
@@ -77,7 +98,7 @@ class Analysis:
                 * weights
                 * 5
                 * (
-                    (self.y_pred >= threshold) & (self.y_test.values[:, -1] == 1)
+                    (self.y_pred >= threshold) & (self.y_test == 1)
                 ).astype(int)
             ).sum()
             bg[idx] = (
@@ -85,7 +106,7 @@ class Analysis:
                 * weights
                 * 5
                 * (
-                    (self.y_pred >= threshold) & (self.y_test.values[:, -1] == 0)
+                    (self.y_pred >= threshold) & (self.y_test == 0)
                 ).astype(int)
             ).sum()
         # Compute Asimov estimates and propagate statistical uncertainty
@@ -132,40 +153,53 @@ class Analysis:
                 if path[-1] != "/":
                     path += "/"
                 fig.savefig(path + "significance.png", dpi=200)
-            # plt.savefig("./models/trained_models/final_rnn/significance.png", dpi=200)
+            sigs = (0, 0.05, 0.1)
+            Zs = (Z_0, Z_5, Z_10)
+            Zerrs = (Z_err_0, Z_err_5, Z_err_10)
+            for sig, Z_a, Zerr in zip(sigs, Zs, Zerrs):
+                idx = np.argmax(Z_a[Z_a < np.inf]-Zerr[Zerr < np.inf])
+                self.plot_cm(idx, thresholds[idx], sg, bg, sig=sig, path=path)
         return (Z_0, Z_5, Z_10, Z_20), (Z_err_0, Z_err_5, Z_err_10, Z_err_20)
 
-        # thresholds = np.arange(0, 1+res, res)
-        # ams_sigma0 = np.zeros(len(thresholds))
-        # ams_sigma5 = np.zeros(len(thresholds))
-        # ams_sigma10 = np.zeros(len(thresholds))
-        # ams_sigma20 = np.zeros(len(thresholds))
-
-        # sg = np.zeros(len(thresholds))
-        # bg = np.zeros(len(thresholds))
-
-        # for idx, threshold in enumerate(thresholds):
-        #     sg[idx] = (lum * weights * 5 * ((self.y_pred >= threshold) & (self.y_test == 1)).astype(int)).sum()
-        #     bg[idx] = (lum * weights * 5 * ((self.y_pred >= threshold) & (self.y_test == 0)).astype(int)).sum()
-        #     # Min 10 signal events
-        #     if sg[idx] > 10:
-        #         ams_sigma0[idx] = asimov(sg[idx], bg[idx], 0, br)
-        #         ams_sigma5[idx] = asimov(sg[idx], bg[idx], 0.05, br)
-        #         ams_sigma10[idx] = asimov(sg[idx], bg[idx], 0.1, br)
-        #         ams_sigma20[idx] = asimov(sg[idx], bg[idx], 0.2, br)
-        # if plot:
-        #     plt.plot(thresholds, ams_sigma0, label=r"$\sigma_b=0\%$")
-        #     plt.plot(thresholds, ams_sigma5, label=r"$\sigma_b=5\%$")
-        #     plt.plot(thresholds, ams_sigma10, label=r"$\sigma_b=10\%$")
-        #     plt.plot(thresholds, ams_sigma20, label=r"$\sigma_b=20\%$")
-        #     plt.xlabel("Threshold")
-        #     plt.ylabel("Significance")
-        #     plt.legend()
-        #     plt.show()
-        # return ams_sigma0, ams_sigma5, ams_sigma10, ams_sigma20
-
-    def plot_cm(self, threshold):
+    def plot_cm(self, idx, threshold, sg, bg, sig=0, path=None):
+        """
+        Plot confusion matrix at given threshold
+        """
+        TP = ((self.y_pred >= threshold) & (self.y_test == 1)).sum()
+        FP = ((self.y_pred >= threshold) & (self.y_test == 0)).sum()
+        tpr = TP / np.sum(self.y_test)
+        fpr = FP / (len(self.y_test) - np.sum(self.y_test))
+        conf_mat = [[1-fpr, fpr], [1-tpr, tpr]]
+        events = {(0,0): round(np.sum(bg)-bg[idx]), (0,1): round(bg[idx]), (1, 0): round(np.sum(sg)-sg[idx]), (1,1): round(sg[idx])}
+        mat = plt.matshow(conf_mat, cmap='copper')
+        for (x, y), value in np.ndenumerate(conf_mat):
+            plt.text(y, x, f"{value:.4f}% \n{events[(x,y)]:.2e}", va="center", ha="center", color="r")
+        plt.xlabel('Predicted label')
+        plt.ylabel('Actual Label')
+        plt.xticks([0,1], labels=['Background', 'Signal'])
+        plt.yticks([0,1], labels=['Background', 'Signal'])
+        cbar = plt.colorbar(mat)
+        cbar.ax.set_ylabel(f"% events", rotation=270)
+        plt.suptitle(f"{sig*100}% systematic uncertainty")
+        if path is not None:
+            if path[-1] != "/":
+                path += "/" 
+            plt.savefig(path+"cm_"+sig, dpi=200)
+        plt.show()
+        
+    def shap(self, type, X_train, feature_names, n=25000):
+        if type == "mlp":
+            explainer = shap.GradientExplainer(self.model, X_train)
+            shap_values = explainer.shap_values(shap.sample(self.X_test, n))
+            shap.summary_plot(shap_values[0], features=shap.sample(self.X_test, n), feature_names=feature_names, plot_size=(10,7), show=False)
+            plt.gcf().axes[-1].set_aspect(100)
+            plt.gcf().axes[-1].set_box_aspect(100)
+            plt.show()
+    
+    def noise_study(self):
         ...
+
+
 
 
 def Z(s, b, sig=0):
