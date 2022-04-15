@@ -13,16 +13,22 @@ class Evaluate:
     Contains functions to evaluate performance of keras binary classifier
     """
 
-    def __init__(self, model, X_test, y_test):
+    def __init__(self, model, X_test, y_test, test_xs_weights, path=None):
         """
         Sets y_test and y_pred values for classifier
         Assumes y_test is pandas dataframe with last column being onehot encoding of ttH (i.e. 1 for signal, 0 for background)
         """
         self.y_test = y_test
         self.y_pred = model.predict(X_test).reshape(len(y_test))
+        # if type(X_test) == list and len(X_test) == 1:
+        #     X_test == X_test[0]
         self.X_test = X_test
         self.model = model
-
+        self.test_weights = test_xs_weights
+        if path is not None and path[-1] != "/":
+            path += "/"
+        self.path = path
+    
     def plot_discriminator(self, loc="best"):
         """
         Plot histogram of discriminator outputs for signal and backround
@@ -45,6 +51,8 @@ class Evaluate:
         ax.legend(loc=loc)
         ax.set_xlabel("Discriminator Output", fontsize=12)
         ax.set_ylabel("Frequency Density", fontsize=12)
+        if self.path is not None:
+            plt.savefig(self.path+"discriminator.png", dpi=200)
         plt.show()
         return fig, ax
 
@@ -84,13 +92,17 @@ class Evaluate:
             if log:
                 ax.set_xscale("log")
             ax.legend(loc=loc)
+            if self.path is not None:
+                plt.savefig(self.path+"roc.png", dpi=200)
             plt.show()
         return auc
 
-    def significance(self, weights, lum=140e3, res=0.0001, plot=True, path=None):
+    def significance(self, lum=140e3, res=0.0001, plot=True, pred=None):
         """
         Make significance plot at 0, 5 and 10% systematic bg uncertainties @ L = 140/fb
         """
+        if pred is None:
+            pred = self.y_pred
         thresholds = np.arange(0, 1 + res, res)
         sg = np.zeros(len(thresholds))
         bg = np.zeros(len(thresholds))
@@ -98,15 +110,15 @@ class Evaluate:
             # Compute signal and background events for each cut on discriminator
             sg[idx] = (
                 lum
-                * weights
+                * self.test_weights
                 * 5
-                * ((self.y_pred >= threshold) & (self.y_test == 1)).astype(int)
+                * ((pred >= threshold) & (self.y_test == 1)).astype(int)
             ).sum()
             bg[idx] = (
                 lum
-                * weights
+                * self.test_weights
                 * 5
-                * ((self.y_pred >= threshold) & (self.y_test == 0)).astype(int)
+                * ((pred >= threshold) & (self.y_test == 0)).astype(int)
             ).sum()
         # Compute Asimov estimates and propagate statistical uncertainty
         Z_0, Z_5, Z_10, Z_20 = (
@@ -148,19 +160,17 @@ class Evaluate:
             ax.set_ylim(0)
             ax.grid(alpha=0.6)
             plt.show()
-            if path is not None:
-                if path[-1] != "/":
-                    path += "/"
-                fig.savefig(path + "significance.png", dpi=200)
+            if self.path is not None:
+                fig.savefig(self.path + "significance.png", dpi=200)
             sigs = (0, 0.05, 0.1)
             Zs = (Z_0, Z_5, Z_10)
             Zerrs = (Z_err_0, Z_err_5, Z_err_10)
             for sig, Z_a, Zerr in zip(sigs, Zs, Zerrs):
                 idx = np.argmax(Z_a[Z_a < np.inf] - Zerr[Zerr < np.inf])
-                self.plot_cm(idx, thresholds[idx], sg, bg, sig=sig, path=path)
+                self.plot_cm(idx, thresholds[idx], sg, bg, sig=sig)
         return (Z_0, Z_5, Z_10, Z_20), (Z_err_0, Z_err_5, Z_err_10, Z_err_20)
 
-    def plot_cm(self, idx, threshold, sg, bg, sig=0, path=None):
+    def plot_cm(self, idx, threshold, sg, bg, sig=0):
         """
         Plot confusion matrix at given threshold
         """
@@ -182,26 +192,25 @@ class Evaluate:
             plt.text(
                 y,
                 x,
-                f"{100*value:.2f}% \n{round(events[(x,y)], 3-int(floor(log10(abs(events[(x,y)]))))-1)}",
+                f"{100*value:.2f}% \n{int(round(events[(x,y)]))}",
                 va="center",
                 ha="center",
                 color="k",
             )
         plt.xlabel("Predicted Label")
         plt.ylabel("True Label")
-        plt.xticks([0, 1], labels=["Background", "Signal"])
-        plt.yticks([0, 1], labels=["Background", "Signal"])
+        plt.xticks([0, 1], labels=[r"$t\bar t$", "ttH"])
+        plt.yticks([0, 1], labels=[r"$t\bar t$", "ttH"])
         # plt.clim(0,1)
         # cbar = plt.colorbar(mat)
         # cbar.ax.set_ylabel(f"% events", rotation=270, labelpad=20)
         plt.suptitle(rf"$\sigma_b={100*sig}$%")
-        if path is not None:
-            if path[-1] != "/":
-                path += "/"
-            plt.savefig(path + "cm_" + sig, dpi=200)
+        plt.tight_layout(pad=5)
+        if self.path is not None:
+            plt.savefig(self.path + "cm_" + str(sig) + ".png", dpi=200)
         plt.show()
 
-    def feature_importance(self, type, X_train, feature_names, n=25000, path=None):
+    def feature_importance(self, type, X_train, feature_names, n=25000):
         """
         Plot shapley values (impact on model output)
         """
@@ -240,17 +249,63 @@ class Evaluate:
             )
             plt.gcf().axes[-1].set_aspect(100)
             plt.gcf().axes[-1].set_box_aspect(100)
-        if path is not None:
-            if path != "/":
-                path += "/"
-            plt.savefig(path+"shap_plot.png", dpi=200)
+        if type.lower() == "rnn_combined":
+            ...
+        if self.path is not None:
+            plt.savefig(self.path+"shap_plot.png", dpi=200)
         plt.show()
 
-    def noise_study(self):
+    def noise_study(self, type="rnn", idx=-2, repeats=5):
+        """
+        Add noise to jet pt
+        """
+        noise_amps = np.arange(0.05, 0.30, 0.05)
+        aucs = np.zeros((repeats, len(noise_amps) ))
+        sigs = np.zeros((repeats, len(noise_amps)))
+        sigs_errs = np.zeros((repeats, len(noise_amps))) 
+        auc_0 = roc_auc_score(self.y_test, self.y_pred)
+        for i, amp in enumerate(noise_amps):
+            print(f"\namp {i+1}/{len(noise_amps)}")
+            for repeat in range(repeats):
+                if type.lower() == "rnn":
+                    noise = np.random.normal(loc=0, scale=amp, size=self.X_test.shape[:-1])
+                    X_test_noisy = self.X_test.copy()
+                    X_test_noisy[:, :, idx] = X_test_noisy[:, :, idx] + np.where(X_test_noisy[:,:,idx]!=0, noise, 0)
+                if type.lower() == "mlp":
+                    noise = np.random.normal(loc=0, scale=amp, size=self.X_test.shape[0])
+                    X_test_noisy = self.X_test.copy()
+                    X_test_noisy[:, idx] = X_test_noisy[:, idx] + np.where(X_test_noisy[:, idx]!=0, noise, 0)
+                preds = self.model.predict(X_test_noisy).reshape(len(self.y_test))
+                aucs[repeat, i] = roc_auc_score(self.y_test, preds) - auc_0
+                # s = self.significance(pred=preds, plot=False)
+                # sigs[i, repeat, :] = np.max(s[0][0])
+                # sigs_errs[i, repeat, :] = s[1][0][np.argmax(s[0][0])]
+                print("-", end="")
+        # fig, ax = plt.subplots(2, 1, sharex=True, figsize=(15,12))
+        fig, ax = plt.subplots()
+        ax.boxplot(aucs)
+        ax.set_ylabel(r"$\Delta$ ROC AUC")
+        # ax.set_xticks(range(1, len(noise_amps+1)))
+        ax.set_xticklabels([100*round(i, 2) for i in noise_amps])
+        ax.set_xlabel("Noise Amplitude (% of mean)")
+        plt.tight_layout()
+        # ax.hlines(auc_0, color="r", linestyles="dashed")
+        # ax[1].boxplot(sigs[:, :, 0])
+        # ax[1].set_ylabel(r"$\Delta$ significance")
+        # ax[1].set_xticks(range(1, len(noise_amps+1)))
+        # ax[1].set_xticklabels([f"{amp}" for amp in noise_amps])
+        # ax[1].set_xlabel("Noise amplitude (% of mean)")
+        plt.show()
+        if self.path is not None:
+            fig.savefig(self.path+"noise_boxplot.png", dpi=200)
+        return aucs, sigs, sigs_errs
+    
+    def scale(self):
         ...
+    
 
 
-def Z(s, b, sig=0):
+def Z(s, b, sig=0, eps=0.000001):
     """
     Asimov median significance estimate
     - s, b are signal and background event counts
