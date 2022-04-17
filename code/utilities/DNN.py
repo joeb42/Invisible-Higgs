@@ -173,24 +173,32 @@ class RNNCombined(NN):
     ):
         obj_inp = Input(shape=input_shape[0])
         prev = obj_inp
-        if rnn_layers == 1:
-            prev = GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)(prev)
-        else:
-            for _ in range(rnn_layers - 1):
-                prev = GRU(
-                    rnn_neurons,
-                    recurrent_dropout=recurrent_dropout,
-                    return_sequences=True,
-                )(prev)
-        prev = GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)(prev)
+        # if rnn_layers == 1:
+        #     prev = GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)(prev)
+        # else:
+        #     for _ in range(rnn_layers - 1):
+        #         prev = GRU(
+        #             rnn_neurons,
+        #             recurrent_dropout=recurrent_dropout,
+        #             return_sequences=True,
+        #         )(prev)
+        #     prev = GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)(prev)
+        for layer in range(rnn_layers):
+            gru = GRU(
+                rnn_neurons,
+                recurrent_dropout=recurrent_dropout,
+                return_sequences=(layer != rnn_layers-1),
+            )(prev)
+            prev = LayerNormalization()(gru)
+        # dense1 = Dense(rnn_neurons, activation="selu", kernel_initializer="lecun_normal")(prev)
         event_inp = Input(shape=input_shape[1])
         dense = Dense(
             rnn_neurons, activation="selu", kernel_initializer="lecun_normal"
         )(event_inp)
         conc = Concatenate()([prev, dense])
         prev = conc
-        for layer in range(dense_layers - 1):
-            if dropout > 0 and layer > 0:
+        for layer in range(dense_layers):
+            if (dropout > 0) and (0 < layer < dense_layers-1):
                 prev = AlphaDropout(rate=dropout)(prev)
             prev = Dense(
                 dense_neurons, activation="selu", kernel_initializer="lecun_normal"
@@ -198,7 +206,7 @@ class RNNCombined(NN):
         if n_outputs == 1:
             out = Dense(n_outputs, activation="sigmoid")(prev)
         else:
-            out = Dense(n_outputs, activation="softmax")
+            out = Dense(n_outputs, activation="softmax")(prev)
         self.model = Model(inputs=[obj_inp, event_inp], outputs=out)
 
 
