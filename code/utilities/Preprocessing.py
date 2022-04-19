@@ -5,7 +5,7 @@ from sklearn.preprocessing import StandardScaler
 import os
 
 
-class PreProcess:
+class Data:
     """
     Pre-processes data for mlp, RNN and CNN models
     - Strips useless columns
@@ -21,23 +21,22 @@ class PreProcess:
         exclude=("BiasedDPhi",),
         path="/software/ys20884/ml_postproc/",
     ):
-        path = "/software/ys20884/ml_postproc/"
         if datasets == "all":
             datasets = set(os.listdir(path)) - {"test"}
         data = pd.concat(
             [pd.read_hdf(path + dataset + "/df_ml_inputs.hd5") for dataset in datasets]
         )
-        new_cols = {
-            "QCD": "QCD",
-            "Jets": "VJets",
-            "WminusH125": "VH125",
-            "WplusH125": "VH125",
-            "ZH125": "VH125",
-        }
-        for col in new_cols:
-            data["dataset"] = data.dataset.str.replace(
-                r"(^.*" + col + r".*$)", new_cols[col]
-            )
+        # new_cols = {
+        #     "QCD": "QCD",
+        #     "Jets": "VJets",
+        #     "WminusH125": "VH125",
+        #     "WplusH125": "VH125",
+        #     "ZH125": "VH125",
+        # }
+        # for col in new_cols:
+        #     data["dataset"] = data.dataset.str.replace(
+        #         r"(^.*" + col + r".*$)", new_cols[col]
+        #     )
         self.y = pd.get_dummies(data["dataset"])
         # Drop unimportant cols
         self.MHT_phis = data["MHT_phi"]
@@ -99,12 +98,13 @@ class PreProcess:
         X_test = event_scaler.transform(X_test)
         return X_train, X_test
 
-    def sequential(self, exclude=[]):
+    def sequential(self, exclude=()):
         """
         Returns scaled object level data in train test split for RNN networks
+        Order of cols: area, btag, chHEF, eta, mass, neHEF, dphi leading jet, pt, dphi MHT
         """
 
-        inp_data = self.X.select_dtypes(object).drop(exclude, axis=1)
+        inp_data = self.X.select_dtypes(object).drop(list(exclude), axis=1)
         max_jets = 14
         num_samples = len(inp_data)
         # num_cols = len(inp_data.columns) + 1
@@ -187,7 +187,7 @@ class PreProcess:
                 )
         # jet_data_arr[:, :, 0] *= np.sign(jet_data_arr[:, 0, 0] * jet_data_arr[:, :, 0])
         N = len(jet_data_arr)
-        jet_images = np.zeros((N, eta_dim, phi_dim, 3), dtype=np.half)
+        jet_images = np.zeros((N, eta_dim, phi_dim, 2), dtype=np.half)
         for jet in range(14):
             # if jet == 0:
             #     phis = 19 * np.ones(N).astype(int)
