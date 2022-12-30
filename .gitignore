@@ -154,5 +154,4 @@ histograms/
 *.data*
 */checkpoint 
 *.json
-
-
+data/
