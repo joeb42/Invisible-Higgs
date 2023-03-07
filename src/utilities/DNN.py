@@ -172,8 +172,8 @@ class RNN_Combined(Model):
 
     def compile(self, *args, learning_rate: float = 0.001, **kwargs):
         kwargs["optimizer"] = Nadam(learning_rate=learning_rate)
-        self.rnn.compile(*args, **kwargs)
-        self.mlp.compile(*args, **kwargs)
+        # self.rnn.compile(*args, **kwargs)
+        # self.mlp.compile(*args, **kwargs)
         super().compile(*args, **kwargs)
     
     def call(self, x):
