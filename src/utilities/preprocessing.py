@@ -1,8 +1,9 @@
+import os
+from pathlib import Path
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import os
 
 
 class Data:
@@ -15,12 +16,12 @@ class Data:
 
     def __init__(
         self,
-        path: str,
+        path: Path,
         datasets: list[str] = [
             "ttH125",
             "TTToHadronic",
             "TTToSemiLeptonic",
-            "TTTo2L2Nu",
+            "TTToDiLeptonic",
         ],
         seed: int = 42,
         train_size: float = 0.8,
@@ -28,9 +29,7 @@ class Data:
     ):
         if datasets == "all":
             datasets = set(os.listdir(path)) - {"test"}
-        data = pd.concat(
-            [pd.read_hdf(path + dataset + "/df_ml_inputs.hd5") for dataset in datasets]
-        )
+        data = pd.concat([pd.read_hdf(path / f"{dataset}.hd5") for dataset in datasets])
         # Drop unimportant cols
         self.MHT_phis = data["MHT_phi"]
         self.MHT_pts = data["MHT_pt"]
@@ -56,6 +55,7 @@ class Data:
             "ncleanedJet",
             "xs_weight",
         ]
+        self.y = (data["dataset"] == "ttH125").astype(int)
         self.X = data.drop(
             [col for col in data.columns if col not in cols] + list(exclude),
             axis=1,
@@ -150,7 +150,7 @@ class Data:
         """
         eta_res = 10 / eta_dim
         phi_res = (2 * np.pi) / phi_dim
-        #centre = int((eta_dim - 1) / 2), int((phi_dim - 1) / 2)
+        # centre = int((eta_dim - 1) / 2), int((phi_dim - 1) / 2)
         cols = [
             "cleanedJet_eta",
             "cleanedJet_phi",
