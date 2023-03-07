@@ -7,6 +7,7 @@ from tensorflow.keras.layers import (
     Flatten,
     Conv2D,
     AveragePooling2D,
+    Input
 )
 from tensorflow.keras.optimizers import Nadam
 from tensorflow.keras import Model
@@ -34,8 +35,8 @@ class MLP(Model):
         self.out = Dense(n_outputs, activation=activation)
 
     def compile(self, *args, learning_rate: float = 0.001, **kwargs) -> None:
-        opt = Nadam(learning_rate=learning_rate)
-        super().compile(*args, optimizer=opt, **kwargs)
+        kwargs["optimizer"] = Nadam(learning_rate=learning_rate)
+        super().compile(*args, **kwargs)
 
     def call(self, x):
         for idx, layer in enumerate(self.dense_layers):
@@ -75,8 +76,8 @@ class CNN(Model):
         self.out = Dense(n_outputs, activation=activation)
 
     def compile(self, *args, learning_rate: float = 0.001, **kwargs) -> None:
-        opt = Nadam(learning_rate=learning_rate)
-        super().compile(*args, optimizer=opt, **kwargs)
+        kwargs["optimizer"] = Nadam(learning_rate=learning_rate)
+        super().compile(*args, **kwargs)
 
     def call(self, x):
         for conv_layer in self.conv_layers:
@@ -87,7 +88,7 @@ class CNN(Model):
             x = dense_layer(x)
             if self.dropout_rate > 0:
                 x = AlphaDropout(self.dropout_rate)(x)
-        x = self.Dense_layers[-1](x)
+        x = self.dense_layers[-1](x)
         return self.out(x)
 
 
@@ -110,9 +111,11 @@ class RNN(Model):
     ) -> None:
         super().__init__(self, **kwargs)
         self.rnn_layers = [
-            GRU(rnn_neurons, recurrent_dropout=recurrent_dropout)
-            for layer in range(rnn_layers)
+            GRU(rnn_neurons, recurrent_dropout=recurrent_dropout, return_sequences=True)
+            for layer in range(rnn_layers - 1)
         ]
+        self.ln = LayerNormalization()
+        self.rnn_layers.append(GRU(rnn_neurons, recurrent_dropout=recurrent_dropout, return_sequences=False))
         self.dense_layers = [
             Dense(dense_neurons, activation="selu", kernel_initializer="lecun_normal")
             for layer in range(dense_layers)
@@ -122,17 +125,17 @@ class RNN(Model):
         self.out = Dense(n_outputs, activation=activation)
 
     def compile(self, *args, learning_rate: float = 0.001, **kwargs) -> None:
-        opt = Nadam(learning_rate=learning_rate)
-        super().compile(*args, optimizer=opt, **kwargs)
+        kwargs["optimizer"] = Nadam(learning_rate=learning_rate)
+        super().compile(*args, **kwargs)
 
-    def call(self, x):
+    def call(self, x, **kwargs):
         # GRU layers
         for layer in self.rnn_layers:
-            x = layer(x)
-            x = LayerNormalization(x)
+            x = layer(x) 
+            # x = self.ln(x) 
         # Dense Layers
-        for layer in self.dense_layers:
-            if self.dropout_rate > 0 and layer > 0:
+        for idx, layer in enumerate(self.dense_layers):
+            if self.dropout_rate > 0 and idx > 0:
                 x = AlphaDropout(rate=self.dropout_rate)(x)
             x = layer(x)
         return self.out(x)
@@ -167,7 +170,14 @@ class RNN_Combined(Model):
             dropout_rate=dropout,
         )
 
-    def call(self, x_jet, x_event):
+    def compile(self, *args, learning_rate: float = 0.001, **kwargs):
+        kwargs["optimizer"] = Nadam(learning_rate=learning_rate)
+        self.rnn.compile(*args, **kwargs)
+        self.mlp.compile(*args, **kwargs)
+        super().compile(*args, **kwargs)
+    
+    def call(self, x):
+        x_jet, x_event = x
         x_jet = self.rnn(x_jet)
         x_jet = Flatten()(x_jet)
         x = Concatenate()([x_jet, x_event])
